@@ -1,8 +1,10 @@
 # Universal Escrow Protocol
 
 A reusable EVM escrow contract with a TypeScript/ethers SDK, an MCP server, a
-local deployment workflow, and two runnable marketplace reference flows.
-Nothing in this repository has been deployed to a public network or audited.
+local deployment workflow, and two runnable marketplace reference flows. The
+browser reference is configured for the user-provided Sepolia deployments;
+this workspace has not independently verified those addresses or audited the
+contracts.
 
 ## Architecture
 
@@ -19,8 +21,8 @@ Nothing in this repository has been deployed to a public network or audited.
   SDK against real contracts on an isolated local Hardhat chain.
 - `web/` — one Vite documentation website with `/examples/freelance-escrow`
   and `/examples/p2p-escrow` browser integrations. Both use the SDK with an
-  injected wallet and the configured local contract; neither simulates chain
-  state.
+  injected wallet and the configured Sepolia contracts; neither simulates
+  chain state. Hardhat Local remains available for tests and CLI development.
 - `test/` — existing regression tests and contract, SDK, and MCP integration
   tests.
 - `docs/architecture.md` and `docs/security.md` — architecture and threat
@@ -46,11 +48,13 @@ The build compiles Solidity, emits SDK/MCP JavaScript and declarations, and
 builds the docs website. Root TypeScript compilation explicitly excludes
 `dist/` so generated declarations are not rediscovered as source inputs.
 The current contract/SDK/MCP/reference-flow suite has 62 passing tests.
-The current verified local chain is Hardhat (`31337`). The existing Sepolia
-network entry is a configuration template only: no contract deployment or
-token has been verified there. Base and other networks are intentionally not
-listed as supported deployments. No real USDC address is assumed; symbols such
-as `USDC` must be explicitly configured for the relevant chain.
+The browser reference targets Ethereum Sepolia (`11155111`) with escrow
+`0x8BFF30EcA3b4FF87d269B086525161ab334F04b7` and the six-decimal mUSDC mock
+token `0xE52bFe7d7e08Fe268a6413f77676c96a17577fcb`, as supplied for this
+project. mUSDC is not real USDC. Browser runtime checks the configured RPC
+chain and contract bytecode before enabling interactions. This is not an
+independent on-chain verification or an audit. Hardhat Local (`31337`) remains
+the test and local CLI network. No real USDC address is assumed.
 
 ## Local persistent deployment and MCP
 
@@ -79,62 +83,38 @@ node lifetime are stale even if they remain in `deployments/local.json`.
 
 ## Interactive documentation and browser references
 
-Keep the local Hardhat node running, deploy to it, then configure the public
-browser addresses from the newly generated metadata. This PowerShell snippet
-updates only these two Vite entries and preserves unrelated `.env.local`
-settings:
+The browser reads from a separately configured Sepolia JSON-RPC endpoint and
+uses the injected wallet only for signing. Set the public Vite values in the
+project's untracked `.env.local` before starting Vite:
 
-```powershell
-$deployment = Get-Content .\deployments\local.json -Raw | ConvertFrom-Json
-$envPath = ".\.env.local"
-$existing = if (Test-Path $envPath) { @(Get-Content $envPath) } else { @() }
-$settings = [ordered]@{
-  VITE_ESCROW_CONTRACT_ADDRESS = $deployment.contracts.Escrow.address
-  VITE_MUSDC_ADDRESS = $deployment.tokens.mUSDC.address
-}
-$lines = [System.Collections.Generic.List[string]]::new()
-$written = @{}
-foreach ($line in $existing) {
-  if ($line -match '^\s*(VITE_ESCROW_CONTRACT_ADDRESS|VITE_MUSDC_ADDRESS)\s*=') {
-    $name = $Matches[1]
-    if (-not $written.ContainsKey($name)) {
-      $lines.Add("$name=$($settings[$name])")
-      $written[$name] = $true
-    }
-  } else {
-    $lines.Add($line)
-  }
-}
-foreach ($name in $settings.Keys) {
-  if (-not $written.ContainsKey($name)) {
-    $lines.Add("$name=$($settings[$name])")
-  }
-}
-Set-Content -Path $envPath -Value $lines
-npm run dev:docs
+```dotenv
+VITE_ESCROW_RPC_URL=<public-read-only-sepolia-json-rpc-url>
+VITE_ESCROW_CONTRACT_ADDRESS=0x8BFF30EcA3b4FF87d269B086525161ab334F04b7
+VITE_MUSDC_ADDRESS=0xE52bFe7d7e08Fe268a6413f77676c96a17577fcb
 ```
 
-Open the Vite URL (normally `http://127.0.0.1:5173/`). The documentation
-explains the actual contract lifecycle and SDK/MCP APIs. The examples are
+Every `VITE_` value is exposed in the browser bundle. Use a public/read-only
+RPC endpoint and do not place secrets or private keys there. There is no
+localhost RPC fallback. After setting the values, run `npm run dev:docs` and
+open the Vite URL (normally `http://127.0.0.1:5173/`). The examples are
 available at:
 
 - `http://127.0.0.1:5173/examples/freelance-escrow`
 - `http://127.0.0.1:5173/examples/p2p-escrow`
 
-Configure an injected browser wallet to the local Hardhat network (RPC
-`http://127.0.0.1:8545`, chain ID `31337`). The reference pages can offer to
-add/switch to this network. Import a **local development account** from the
-Hardhat node output into a development wallet; use different local accounts
-for buyer and seller and switch accounts to complete each party's step. Never
-use a real wallet key or import a real-funds account into this local demo.
-Use ETH for the simplest end-to-end path: `mUSDC` is a mock token and needs a
-token balance before funding. Browser transaction details and hashes are real
-SDK results; local activity labels and project/deal notes are saved only in
-that browser and are not written into the contract. Contract reads use the
-configured local RPC independently of the selected wallet network. A wallet on
-Sepolia remains on Sepolia until you explicitly choose the switch-network
-action; signing is disabled until it is on chain `31337`.
+Configure an injected browser wallet for Ethereum Sepolia (chain ID
+`11155111`). The reference pages offer an explicit switch action and request
+Sepolia (`0xaa36a7`, ETH); they never switch networks or submit transactions
+automatically. Reads use the configured RPC, while writes are signed through
+the wallet. The UI checks for escrow bytecode before enabling interactions,
+and checks that the configured mUSDC address has code and reports six decimals
+before offering it. mUSDC is a mock token, not USDC, and requires a token
+balance before funding. Browser transaction details and hashes are SDK results;
+project/deal notes and activity labels are saved only in that browser.
 
+The local Hardhat node and `deployments/local.json` workflow above are kept for
+isolated CLI development and tests. They do not configure or overwrite the
+Sepolia browser deployment.
 To preview the production build locally, run `npm run build` followed by
 `npm run preview:docs`. Vite's SPA fallback serves the example routes directly,
 including on refresh.
@@ -305,6 +285,5 @@ The contract uses checks-effects-interactions, a reentrancy guard on token
 funding and settlement, exact-value token checks, and state rollback on failed
 transfers. The automated suite is not a professional audit. Slither is not
 installed in the current environment, and static analysis remains outstanding.
-There is no verified public deployment, production token configuration, or
-mainnet support. The provided workspace has no Git metadata, so a Git diff
-could not be inspected.
+The supplied Sepolia addresses are not independently verified in this
+workspace; no mainnet deployment or production token configuration is claimed.

@@ -1,9 +1,9 @@
 # Architecture
 
-Universal Escrow Protocol is a local-first EVM escrow contract with a reusable
-ethers v6 SDK. The CLI and browser reference integrations and the MCP server
-call the same SDK; they do not implement separate escrow accounting or
-simulate chain state.
+Universal Escrow Protocol is an EVM escrow contract with a reusable ethers v6
+SDK. The browser reference targets the user-provided Sepolia deployments; the
+CLI, tests, and MCP examples retain separate Hardhat Local configuration. The
+integrations call the same SDK and do not simulate chain state.
 
 ```mermaid
 flowchart LR
@@ -32,21 +32,22 @@ flowchart LR
 - **Reference integrations:** `apps/freelance/demo.ts` and
   `apps/p2p/demo.ts` are executable CLI examples using the SDK against
   ephemeral local Hardhat deployments. `web/` provides two separate browser
-  reference experiences backed by the same SDK. Read-only contract access
-  uses the configured local RPC and does not require a connected wallet.
-  Write transactions require a connected injected wallet on the configured
-  local chain and explicit wallet signing; project/deal notes and
+  reference experiences backed by the same SDK. Browser reads use the
+  configured Sepolia JSON-RPC endpoint and do not require a connected wallet.
+  Write transactions require a connected injected wallet on Sepolia and
+  explicit wallet signing; project/deal notes and
   browser-observed activity are local UI metadata, not contract state.
 - **Deployment script:** deploys Escrow and MockERC20 to a running local node,
   allowlists that mock token, and records actual deployment addresses and ABI
   in ignored `deployments/local.json`.
 
   The browser app uses `BrowserProvider` and the connected wallet's signer for
-  writes. Its configured Vite contract and token addresses are public metadata
-  sourced from `deployments/local.json`; never put a private key in a `VITE_`
-  variable. Reads use the configured JSON-RPC provider, while writes are
-  signed by the user's connected wallet. The SDK checks the chain and deployed
-  contract before operations and waits for successful receipts.
+  writes. `VITE_ESCROW_RPC_URL`, `VITE_ESCROW_CONTRACT_ADDRESS`, and
+  `VITE_MUSDC_ADDRESS` configure the public Sepolia reference. Vite values are
+  exposed in the bundle; never put a private key or secret RPC credential in a
+  `VITE_` variable. The runtime checks Sepolia's chain ID and escrow bytecode
+  before enabling interactions, and checks the mUSDC token's six decimals
+  before offering it. Writes are signed by the user's connected wallet.
 
 ## Lifecycle and supported assets
 
@@ -61,6 +62,7 @@ deployer arbitrator can allowlist ERC-20 contracts and settle disputes.
 
 ETH and allowlisted ERC-20 tokens are supported. Fee-on-transfer tokens are
 rejected by exact balance-delta checks. NFT and other non-fungible/digital
-assets are not implemented. Hardhat chain ID `31337` is the only verified
-deployment in this workspace; Sepolia is a deployment template, not a
-verified supported deployment.
+assets are not implemented. Hardhat chain ID `31337` remains the local test
+network. The browser uses the user-provided Sepolia addresses; they have not
+been independently verified in this workspace. mUSDC is a mock token with six
+decimals, not real USDC.

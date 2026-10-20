@@ -39,11 +39,19 @@ declare global {
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Documentation root element was not found.");
 
-const chainId = 31337n;
-const rpcUrl = import.meta.env.VITE_ESCROW_RPC_URL?.trim() || "http://127.0.0.1:8545";
+const chainId = 11155111n;
+const rpcUrl = import.meta.env.VITE_ESCROW_RPC_URL?.trim() ?? "";
 const contractAddress = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS?.trim() ?? "";
 const tokenAddress = import.meta.env.VITE_MUSDC_ADDRESS?.trim() ?? "";
-const localProvider = new JsonRpcProvider(rpcUrl, chainId);
+const validRpcUrl = (() => {
+  try {
+    const url = new URL(rpcUrl);
+    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+})();
+const readProvider = validRpcUrl ? new JsonRpcProvider(rpcUrl, chainId) : null;
 const tokenConfiguration: Record<string, { address: string; decimals: number }> =
   tokenAddress && isAddress(tokenAddress)
     ? { mUSDC: { address: tokenAddress, decimals: 6 } }
@@ -53,9 +61,10 @@ let provider: BrowserProvider | null = null;
 let signer: Signer | null = null;
 let account: string | null = null;
 let connectedChain: bigint | null = null;
-let localRpcChain: bigint | null = null;
+let configuredRpcChain: bigint | null = null;
 let contractCodeAvailable: boolean | null = null;
 let tokenCodeAvailable: boolean | null = null;
+let tokenDecimalsVerified = false;
 let configurationError = "";
 let currentDetails: EscrowDetails | null = null;
 let currentProgress: { completed: number; total: number; amounts: bigint[]; delivered: boolean[] } | null = null;
@@ -191,7 +200,7 @@ function renderDocs(): void {
         <article class="card"><span class="card-number">02 / SDK</span><h3>Typed integration</h3><p>The ethers v6 SDK validates inputs, handles token allowance, waits for transaction receipts, and decodes contract events.</p></article>
         <article class="card"><span class="card-number">03 / MCP</span><h3>Tools for agents</h3><p>Eight validated MCP tools expose SDK reads and optional writes. Write access is off unless explicitly enabled.</p></article>
       </div>
-      <div class="callout warning"><p><strong>Local-first status:</strong> this workspace has a verified Hardhat deployment workflow for chain ID 31337. Sepolia is a configuration template, not a verified deployment. The project has not received a professional security audit.</p></div>
+      <div class="callout warning"><p><strong>Sepolia browser reference:</strong> the browser app targets Ethereum Sepolia (chain ID 11155111) using the configured public RPC and contract addresses. The mUSDC asset is a six-decimal mock token, not USDC. The project has not received a professional security audit.</p></div>
     </section>
 
     <section class="section" id="lifecycle">
@@ -235,13 +244,19 @@ function renderDocs(): void {
       <h3>Wallet signing in a browser</h3><p>The application obtains a signer from the connected wallet and passes that signer to the SDK. Read-only state still comes from the provider; the key never enters the app's code or configuration.</p>
       ${codeBlock([
         'import { BrowserProvider } from "ethers";',
+        'import { JsonRpcProvider } from "ethers";',
         'import { Escrow } from "universal-escrow-protocol";',
         "",
-        "const provider = new BrowserProvider(window.ethereum);",
-        "const signer = await provider.getSigner();",
-        "const escrow = new Escrow({",
-        '  chain: { name: "hardhat-local", chainId: 31337n },',
-        "  provider,",
+        "const walletProvider = new BrowserProvider(window.ethereum);",
+        "const signer = await walletProvider.getSigner();",
+        "const readProvider = new JsonRpcProvider(import.meta.env.VITE_ESCROW_RPC_URL, 11155111);",
+        "const readEscrow = new Escrow({",
+        '  chain: { name: "sepolia", chainId: 11155111n },',
+        "  provider: readProvider,",
+        "  contractAddress,",
+        "});",
+        "const writeEscrow = new Escrow({",
+        '  chain: { name: "sepolia", chainId: 11155111n },',
         "  wallet: signer,",
         "  contractAddress,",
         "});",
@@ -257,7 +272,7 @@ function renderDocs(): void {
       <p>Set <code>ESCROW_RPC_URL</code>, <code>ESCROW_CHAIN_NAME=hardhat-local</code>, <code>ESCROW_CHAIN_ID=31337</code>, and the deployed contract address. Configure the mock token only if needed; it is a test token and not USDC.</p>
       <h3>SDK initialization and transaction receipts</h3>${codeBlock(quickStartCode)}
       <div class="callout"><p>For ERC-20 agreements, pass configured token symbol/address and decimals. <code>deposit</code> checks allowance and confirms approval transaction(s) before it funds. The SDK returns only after a successful receipt; a rejected wallet prompt, failed transaction, or missing receipt throws an <code>EscrowSdkError</code>.</p></div>
-      <p>For a browser reference, configure public <code>VITE_ESCROW_CONTRACT_ADDRESS</code> and <code>VITE_MUSDC_ADDRESS</code> values from the local deployment, start the docs app, and connect a wallet on chain 31337. Never place a private key in a <code>VITE_</code> variable.</p>
+      <p>The browser reference is configured separately for Sepolia with public <code>VITE_ESCROW_RPC_URL</code>, <code>VITE_ESCROW_CONTRACT_ADDRESS</code>, and <code>VITE_MUSDC_ADDRESS</code> values. The RPC URL must be an explicitly configured Sepolia endpoint; there is no localhost fallback. Connect a wallet, then choose the network switch action yourself. No network change or transaction happens automatically. Never place a private key or secret in a <code>VITE_</code> variable.</p>
     </section>
 
     <section class="section" id="sdk-reference">
@@ -359,7 +374,7 @@ function renderDocs(): void {
       <div class="eyebrow">07 · Safer integrations</div><h2>Errors, security, best practices</h2>
       <div class="grid-2">
         <article class="card"><h3>Wait for receipts</h3><p>Wallet approval is not confirmation. Treat a transaction as complete only after the SDK returns a confirmed receipt; account for pending, reverted and reorganized transactions in production.</p></article>
-        <article class="card"><h3>Check the connected network</h3><p>The SDK checks configured chain ID and deployed contract code. The browser reference expects local chain 31337; an RPC endpoint can still be stale or untrusted.</p></article>
+        <article class="card"><h3>Check the connected network</h3><p>The browser reference requires Sepolia (11155111), checks the configured escrow contract code before interactions, and verifies the mUSDC mock token's six decimals. An RPC endpoint can still be stale or untrusted.</p></article>
         <article class="card"><h3>Render actions by role and state</h3><p>Disable actions that do not match the connected address, current status, deadlines or approval state. The contract remains authoritative if state changes between read and write.</p></article>
         <article class="card"><h3>Protect signers and tokens</h3><p>Use dedicated low-value development keys locally. Review token contracts before allowlisting; fee-on-transfer tokens are rejected, but allowlisting does not make arbitrary token code safe.</p></article>
       </div>
@@ -376,17 +391,21 @@ function renderDocs(): void {
         <article class="card route-card"><div><span class="tag">DIRECT TRANSACTION</span><h3>P2P Escrow</h3><p>Compact asset agreement with buyer/seller roles, funding, delivery, approval, timeout and the arbitrated dispute path.</p></div><a href="/examples/p2p-escrow">Open P2P reference →</a></article>
       </div>
     </section>
-    <footer class="section"><p>Universal Escrow Protocol · Local development environment · Not professionally audited</p></footer>
+    <footer class="section"><p>Universal Escrow Protocol · Sepolia testnet reference · Not professionally audited</p></footer>
   </div></main></div>`;
 }
 
 function getReadSdk(): Escrow {
+  if (!readProvider) throw new Error("Set VITE_ESCROW_RPC_URL to a Sepolia JSON-RPC URL and restart the docs app.");
+  if (configuredRpcChain !== chainId || contractCodeAvailable !== true) {
+    throw new Error(configurationError || "The configured escrow contract is not verified on Sepolia.");
+  }
   if (!contractAddress || !isAddress(contractAddress)) {
-    throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS from deployments/local.json and restart the docs app.");
+    throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS to the deployed Sepolia escrow address and restart the docs app.");
   }
   return new Escrow({
-    chain: { name: "hardhat-local", chainId },
-    provider: localProvider,
+    chain: { name: "sepolia", chainId },
+    provider: readProvider,
     contractAddress,
     tokens: tokenConfiguration,
   });
@@ -394,12 +413,15 @@ function getReadSdk(): Escrow {
 
 function getWriteSdk(): Escrow {
   if (!provider || !signer || !account) throw new Error("Connect a wallet before submitting a transaction.");
-  if (connectedChain !== chainId) throw new Error("Switch your wallet to Hardhat Local (chain 31337) before sending transactions.");
+  if (connectedChain !== chainId) throw new Error("Switch your wallet to Ethereum Sepolia (chain 11155111) before sending transactions.");
+  if (configuredRpcChain !== chainId || contractCodeAvailable !== true) {
+    throw new Error(configurationError || "The configured escrow contract is not verified on Sepolia.");
+  }
   if (!contractAddress || !isAddress(contractAddress)) {
-    throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS from deployments/local.json and restart the docs app.");
+    throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS to the deployed Sepolia escrow address and restart the docs app.");
   }
   return new Escrow({
-    chain: { name: "hardhat-local", chainId },
+    chain: { name: "sepolia", chainId },
     wallet: signer,
     provider,
     contractAddress,
@@ -468,19 +490,22 @@ function connectionStatus(): string {
 
 function chainLabel(id: bigint | null): string {
   if (id === null) return "unknown chain";
-  if (id === chainId) return "Hardhat Local (31337)";
-  if (id === 11155111n) return "Sepolia (11155111)";
+  if (id === chainId) return "Sepolia (11155111)";
   return `chain ${id}`;
 }
 
 function deploymentStatusMarkup(): string {
   const addressConfigured = Boolean(contractAddress && isAddress(contractAddress));
   const rpcStatus =
-    localRpcChain === null
-      ? `RPC not verified · ${rpcUrl}`
-      : localRpcChain === chainId
-        ? `Local RPC ready · chain ${localRpcChain}`
-        : `RPC chain mismatch · ${localRpcChain} (expected ${chainId})`;
+    !rpcUrl
+      ? "Set VITE_ESCROW_RPC_URL · no localhost fallback"
+      : !validRpcUrl
+        ? "VITE_ESCROW_RPC_URL is not a valid HTTP(S) URL"
+        : configuredRpcChain === null
+          ? "Sepolia RPC not verified"
+          : configuredRpcChain === chainId
+            ? "Sepolia RPC ready · chain 11155111"
+            : `RPC chain mismatch · ${configuredRpcChain} (expected ${chainId})`;
   const contractStatus = !addressConfigured
     ? "Contract address missing or invalid"
     : contractCodeAvailable === true
@@ -493,11 +518,13 @@ function deploymentStatusMarkup(): string {
     : !isAddress(tokenAddress)
       ? "mUSDC address invalid"
       : tokenCodeAvailable === true
-        ? `mUSDC mock token verified · ${shortAddress(tokenAddress)}`
+      ? tokenDecimalsVerified
+        ? `mUSDC mock token verified · 6 decimals · ${shortAddress(tokenAddress)} (not USDC)`
+        : `Token code found, but 6 decimals not verified · ${shortAddress(tokenAddress)}`
         : tokenCodeAvailable === false
           ? `No token code at ${shortAddress(tokenAddress)}`
           : `Checking mUSDC · ${shortAddress(tokenAddress)}`;
-  const ready = addressConfigured && localRpcChain === chainId && contractCodeAvailable === true;
+  const ready = addressConfigured && configuredRpcChain === chainId && contractCodeAvailable === true;
   return `<section class="deployment-status ${ready ? "ready" : "not-ready"}" role="status" aria-live="polite">
     <div><strong>Contract deployment</strong><span>${escapeHtml(contractStatus)}</span></div>
     <div><strong>Configured network</strong><span>${escapeHtml(rpcStatus)}</span></div>
@@ -509,12 +536,12 @@ function deploymentStatusMarkup(): string {
 
 function walletButton(): string {
   if (!account) return `<button class="button" type="button" data-action="connect" ${busy ? "disabled" : ""}>Connect wallet</button>`;
-  if (connectedChain !== chainId) return `<button class="button" type="button" data-action="switch-network" ${busy ? "disabled" : ""}>Switch to Hardhat Local · 31337</button>`;
+  if (connectedChain !== chainId) return `<button class="button" type="button" data-action="switch-network" ${busy || !validRpcUrl ? "disabled" : ""}>Switch to Sepolia · 11155111</button>`;
   return `<button class="button secondary" type="button" data-action="disconnect">${escapeHtml(shortAddress(account))}</button>`;
 }
 
 function lookupForm(): string {
-  return `<form class="lookup-form" data-form="lookup" aria-label="Read escrow by id"><label class="sr-only" for="lookup-id">Escrow ID</label><input id="lookup-id" name="escrowId" inputmode="numeric" pattern="[0-9]+" placeholder="Read an escrow by ID" value="${escapeHtml(loadedEscrowId ?? "")}" required/><button class="button secondary" type="submit" ${busy ? "disabled" : ""}>Load</button></form>`;
+  return `<form class="lookup-form" data-form="lookup" aria-label="Read escrow by id"><label class="sr-only" for="lookup-id">Escrow ID</label><input id="lookup-id" name="escrowId" inputmode="numeric" pattern="[0-9]+" placeholder="Read an escrow by ID" value="${escapeHtml(loadedEscrowId ?? "")}" required/><button class="button secondary" type="submit" ${busy || configuredRpcChain !== chainId || contractCodeAvailable !== true ? "disabled" : ""}>Load</button></form>`;
 }
 
 function statusPill(status: string): string {
@@ -577,7 +604,7 @@ function p2pFlowMarkup(status: string): string {
 }
 
 function actionButtons(mode: "freelance" | "p2p"): string {
-  if (!currentDetails || !account || connectedChain !== chainId) return "";
+  if (!currentDetails || !account || connectedChain !== chainId || configuredRpcChain !== chainId || contractCodeAvailable !== true) return "";
   const detail = currentDetails;
   const isBuyer = account.toLowerCase() === detail.buyer.toLowerCase();
   const isSeller = account.toLowerCase() === detail.seller.toLowerCase();
@@ -629,7 +656,7 @@ function actionButtons(mode: "freelance" | "p2p"): string {
 }
 
 function escrowSummary(mode: "freelance" | "p2p"): string {
-  if (!currentDetails) return `<div class="status-card"><h3>On-chain escrow</h3>${contractAddress && isAddress(contractAddress) ? `<p>Connect a wallet, then create an escrow or load its numeric ID to read live contract state.</p>` : `<div class="notice error">No contract configured. Set VITE_ESCROW_CONTRACT_ADDRESS using deployments/local.json, then restart Vite.</div>`}</div>`;
+  if (!currentDetails) return `<div class="status-card"><h3>On-chain escrow</h3>${contractAddress && isAddress(contractAddress) ? `<p>Connect a Sepolia wallet, then create an escrow or load its numeric ID to read live contract state.</p>` : `<div class="notice error">No contract configured. Set VITE_ESCROW_CONTRACT_ADDRESS to the deployed Sepolia escrow address, then restart Vite.</div>`}</div>`;
   const detail = currentDetails;
   const token = tokenName(detail);
   const metadata = currentMetadata();
@@ -682,7 +709,7 @@ function renderReference(mode: "freelance" | "p2p"): void {
   document.body.className = pageClass;
   document.title = `${freelance ? "Freelance Escrow" : "P2P Escrow"} — Universal Escrow Protocol`;
   const meta = currentMetadata();
-  const tokenOptions = `<option value="ETH">ETH · native local test asset</option>${tokenConfiguration.mUSDC ? `<option value="mUSDC">mUSDC · local mock token</option>` : ""}`;
+  const tokenOptions = `<option value="ETH">ETH · Sepolia test ETH</option>${tokenConfiguration.mUSDC && tokenCodeAvailable === true && tokenDecimalsVerified ? `<option value="mUSDC">mUSDC · mock token · 6 decimals (not USDC)</option>` : ""}`;
   const createForm = freelance
     ? `<form class="form-card" data-form="create-freelance">
         <h3>Set up a project escrow</h3><p class="form-note">The client creates one escrow with sequential, funded milestones. These project labels remain in this browser; contract state contains the total, parties and tranches.</p>
@@ -693,7 +720,7 @@ function renderReference(mode: "freelance" | "p2p"): void {
         <div class="field"><label for="milestone-amounts">Milestone amounts · one positive amount per line</label><textarea id="milestone-amounts" name="amounts" placeholder="0.03&#10;0.02" required></textarea></div>
         <div class="field"><label for="milestone-labels">Milestone names · optional, matching order</label><textarea id="milestone-labels" name="labels" placeholder="Design direction&#10;Final files"></textarea></div>
         <div class="field"><label for="freelance-deadline">Funding deadline · local time</label><input id="freelance-deadline" name="deadline" type="datetime-local"/></div>
-        <button class="button" type="submit" ${busy || !account || connectedChain !== chainId ? "disabled" : ""}>${busy ? "Waiting for wallet…" : "Create milestone escrow"}</button>
+        <button class="button" type="submit" ${busy || !account || connectedChain !== chainId || configuredRpcChain !== chainId || contractCodeAvailable !== true ? "disabled" : ""}>${busy ? "Waiting for wallet…" : "Create milestone escrow"}</button>
       </form>`
     : `<form class="form-card" data-form="create-p2p">
         <h3>Open a transaction</h3><p class="form-note">Create one buyer-funded escrow. The seller submits delivery; buyer and seller approve release, or a party may raise a dispute during review.</p>
@@ -703,7 +730,7 @@ function renderReference(mode: "freelance" | "p2p"): void {
         <div class="field"><label for="p2p-title">Transaction label · local note</label><input id="p2p-title" name="title" placeholder="Used camera sale" maxlength="90" required/></div></div>
         <div class="field"><label for="p2p-description">Terms summary · local note</label><textarea id="p2p-description" name="description" placeholder="Describe the item or exchange. Notes are not stored on-chain." maxlength="500"></textarea></div>
         <div class="field"><label for="p2p-deadline">Funding deadline · local time</label><input id="p2p-deadline" name="deadline" type="datetime-local"/></div>
-        <button class="button" type="submit" ${busy || !account || connectedChain !== chainId ? "disabled" : ""}>${busy ? "Waiting for wallet…" : "Create escrow"}</button>
+        <button class="button" type="submit" ${busy || !account || connectedChain !== chainId || configuredRpcChain !== chainId || contractCodeAvailable !== true ? "disabled" : ""}>${busy ? "Waiting for wallet…" : "Create escrow"}</button>
       </form>`;
 
   app!.innerHTML = `<div class="demo-page ${pageClass}">
@@ -716,9 +743,10 @@ function renderReference(mode: "freelance" | "p2p"): void {
       </div>
       ${noticeHtml()}
       ${metadataWarning ? `<div class="notice">${escapeHtml(metadataWarning)}</div>` : ""}
-      ${!window.ethereum ? `<div class="notice error">No injected EVM wallet was detected. Install/use a browser wallet configured for the local Hardhat chain; the UI never simulates transactions.</div>` : ""}
-      ${connectedChain !== null && connectedChain !== chainId ? `<div class="notice error">Wallet selected ${escapeHtml(chainLabel(connectedChain))}. The configured deployment is on Hardhat Local (chain 31337). Switch networks using the button above; no network change or transaction is automatic.</div>` : ""}
-      ${!contractAddress || !isAddress(contractAddress) ? `<div class="notice error">VITE_ESCROW_CONTRACT_ADDRESS is missing or invalid. Use the address from deployments/local.json in the workspace root .env.local, then restart Vite.</div>` : ""}
+      ${!window.ethereum ? `<div class="notice error">No injected EVM wallet was detected. Use a browser wallet for Ethereum Sepolia; the UI never simulates transactions.</div>` : ""}
+      ${connectedChain !== null && connectedChain !== chainId ? `<div class="notice error">Wallet selected ${escapeHtml(chainLabel(connectedChain))}. The configured deployment is on Sepolia (chain 11155111). Choose Switch to Sepolia above; no network change or transaction is automatic.</div>` : ""}
+      ${!rpcUrl || !validRpcUrl ? `<div class="notice error">Set VITE_ESCROW_RPC_URL to a public/read-only Sepolia HTTP(S) endpoint in the project environment, then restart Vite. No local RPC fallback is used.</div>` : ""}
+      ${!contractAddress || !isAddress(contractAddress) ? `<div class="notice error">VITE_ESCROW_CONTRACT_ADDRESS is missing or invalid. Set it to the deployed Sepolia escrow address, then restart Vite.</div>` : ""}
       ${deploymentStatusMarkup()}
       <div class="${freelance ? "freelance-shell" : "p2p-grid"}">
         <div class="main-column">
@@ -727,8 +755,8 @@ function renderReference(mode: "freelance" | "p2p"): void {
         </div>
         <aside class="side-stack">
           <section class="${freelance ? "status-card" : "txn-card"}">
-            <div class="status-line"><h3>${freelance ? "Escrow overview" : "Transaction monitor"}</h3>${currentDetails ? statusPill(currentDetails.status) : `<span class="tag">LOCAL · 31337</span>`}</div>
-            ${currentDetails ? `${keyValue("Escrow ID", currentDetails.id.toString())}${keyValue("Network", `Hardhat Local · ${chainId}`)}${keyValue("Asset", tokenName(currentDetails))}${keyValue("Transaction role", account ? account.toLowerCase() === currentDetails.buyer.toLowerCase() ? "Buyer / client" : account.toLowerCase() === currentDetails.seller.toLowerCase() ? "Seller / freelancer" : accountIsApprover ? "Configured approver" : account.toLowerCase() === arbitrator?.toLowerCase() ? "Arbitrator" : "Observer" : "Not connected")}` : `<p>Actions appear only when this wallet and the live escrow state permit them.</p><div class="notice">Connect a local development wallet. Reads and writes use the configured address and injected wallet; no activity is fabricated.</div>`}
+            <div class="status-line"><h3>${freelance ? "Escrow overview" : "Transaction monitor"}</h3>${currentDetails ? statusPill(currentDetails.status) : `<span class="tag">SEPOLIA · 11155111</span>`}</div>
+            ${currentDetails ? `${keyValue("Escrow ID", currentDetails.id.toString())}${keyValue("Network", `Ethereum Sepolia · ${chainId}`)}${keyValue("Asset", tokenName(currentDetails))}${keyValue("Transaction role", account ? account.toLowerCase() === currentDetails.buyer.toLowerCase() ? "Buyer / client" : account.toLowerCase() === currentDetails.seller.toLowerCase() ? "Seller / freelancer" : accountIsApprover ? "Configured approver" : account.toLowerCase() === arbitrator?.toLowerCase() ? "Arbitrator" : "Observer" : "Not connected")}` : `<p>Actions appear only when this wallet and the live escrow state permit them.</p><div class="notice">Connect your wallet to Sepolia. Reads use the configured Sepolia RPC and writes are signed by the injected wallet; no activity is fabricated.</div>`}
           </section>
           <section class="activity-card"><div class="status-line"><h3>${freelance ? "Project activity" : "Confirmed transactions"}</h3><span class="tag">THIS BROWSER</span></div>${activityMarkup()}</section>
           ${freelance ? `<section class="status-card"><h3>Why this is a milestone escrow</h3><p>Sequential tranches are supported by this contract. Every milestone amount contributes to one funded total; each release reduces the remaining balance. Project files and labels do not go on-chain.</p><a href="/#contract-reference">See contract behavior →</a></section>` : `<section class="status-card"><h3>Deal rules</h3><p>The buyer funds. The seller marks delivery. Both parties approve release before the three-day review deadline. After review, timeout release is permissionless unless multi-party mode is configured.</p><a href="/#lifecycle">Review lifecycle →</a></section>`}
@@ -750,24 +778,35 @@ async function connectWallet(): Promise<void> {
   if (loadedEscrowId && connectedChain === chainId) await refreshEscrow(loadedEscrowId);
 }
 
-async function switchToLocalNetwork(): Promise<void> {
+async function switchToSepoliaNetwork(): Promise<void> {
   if (!window.ethereum) throw new Error("No injected EVM wallet was detected.");
+  if (!validRpcUrl) throw new Error("Set VITE_ESCROW_RPC_URL to a valid Sepolia HTTP(S) endpoint before switching networks.");
+  const switchRequest = () => window.ethereum!.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: "0xaa36a7" }],
+  });
   try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x7a69" }],
-    });
+    await switchRequest();
   } catch (error) {
-    if (!(typeof error === "object" && error !== null && "code" in error && error.code === 4902)) throw error;
-    await window.ethereum.request({
-      method: "wallet_addEthereumChain",
-      params: [{
-        chainId: "0x7a69",
-        chainName: "Hardhat Local",
-        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: ["http://127.0.0.1:8545"],
-      }],
-    });
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === 4001) throw new Error("The wallet rejected the Sepolia network switch. No transaction was sent.");
+    if (code !== 4902) throw new Error("The wallet could not switch to Sepolia. Check the wallet error and try again.");
+    try {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: "0xaa36a7",
+          chainName: "Sepolia",
+          nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: [rpcUrl],
+        }],
+      });
+      await switchRequest();
+    } catch (addError) {
+      const addCode = typeof addError === "object" && addError !== null && "code" in addError ? addError.code : undefined;
+      if (addCode === 4001) throw new Error("The wallet rejected the Sepolia network request. No transaction was sent.");
+      throw new Error("The wallet could not add or switch to Sepolia. Check wallet network settings and try again.");
+    }
   }
   if (window.ethereum) {
     provider = new BrowserProvider(window.ethereum as unknown as Eip1193Provider);
@@ -782,11 +821,12 @@ async function refreshEscrow(id: string): Promise<void> {
   const readSdk = getReadSdk();
   const details = await readSdk.getEscrow(id);
   const latest = await readSdk.getChainTimestamp();
+  if (!readProvider) throw new Error("Sepolia read RPC is not configured.");
   const readContract = new Contract(contractAddress, [
     "function arbitrator() view returns (address)",
     "function releaseApprovals(uint256,address) view returns (bool)",
     "function releaseApprover(uint256,address) view returns (bool)",
-  ], localProvider);
+  ], readProvider);
   const [arbitratorAddress, alreadyApproved, isConfiguredApprover] = await Promise.all([
     readContract.getFunction("arbitrator").staticCall() as Promise<string>,
     account && !details.milestoneMode
@@ -805,34 +845,58 @@ async function refreshEscrow(id: string): Promise<void> {
   loadedEscrowId = id;
 }
 
-async function checkLocalDeployment(): Promise<void> {
+async function checkSepoliaDeployment(): Promise<void> {
+  if (!readProvider) {
+    configuredRpcChain = null;
+    contractCodeAvailable = false;
+    tokenCodeAvailable = false;
+    tokenDecimalsVerified = false;
+    configurationError = !rpcUrl
+      ? "Configure VITE_ESCROW_RPC_URL with a public/read-only Sepolia endpoint."
+      : "VITE_ESCROW_RPC_URL must be a valid HTTP(S) URL.";
+    render();
+    return;
+  }
   try {
-    localRpcChain = (await localProvider.getNetwork()).chainId;
-    if (localRpcChain !== chainId) {
+    configuredRpcChain = (await readProvider.getNetwork()).chainId;
+    if (configuredRpcChain !== chainId) {
       contractCodeAvailable = false;
       tokenCodeAvailable = false;
-      configurationError = `Configured local RPC returned chain ${localRpcChain}; expected ${chainId}.`;
+      tokenDecimalsVerified = false;
+      configurationError = `Configured RPC returned chain ${configuredRpcChain}; expected Sepolia chain ${chainId}.`;
       render();
       return;
     }
     if (!contractAddress || !isAddress(contractAddress)) {
       contractCodeAvailable = false;
-      configurationError = "VITE_ESCROW_CONTRACT_ADDRESS is missing or invalid. Set it from deployments/local.json and restart Vite.";
+      configurationError = "VITE_ESCROW_CONTRACT_ADDRESS is missing or invalid.";
     } else {
-      contractCodeAvailable = (await localProvider.getCode(contractAddress)) !== "0x";
+      contractCodeAvailable = (await readProvider.getCode(contractAddress)) !== "0x";
       configurationError = contractCodeAvailable
         ? ""
-        : `No contract bytecode at ${contractAddress} on local chain ${chainId}; verify the deployment belongs to the running node.`;
+        : `No contract bytecode at ${shortAddress(contractAddress)} on Sepolia; interactions are disabled.`;
     }
-    tokenCodeAvailable =
-      Boolean(tokenAddress && isAddress(tokenAddress)) &&
-      (await localProvider.getCode(tokenAddress)) !== "0x";
+    tokenCodeAvailable = Boolean(tokenAddress && isAddress(tokenAddress));
+    if (tokenCodeAvailable) tokenCodeAvailable = (await readProvider.getCode(tokenAddress)) !== "0x";
+    tokenDecimalsVerified = false;
+    if (tokenCodeAvailable) {
+      try {
+        const token = new Contract(tokenAddress, ["function decimals() view returns (uint8)"], readProvider);
+        const decimals = await token.getFunction("decimals").staticCall() as bigint;
+        tokenDecimalsVerified = decimals === 6n;
+        if (!tokenDecimalsVerified) configurationError = "The configured mUSDC token does not report 6 decimals; mUSDC use is disabled.";
+      } catch {
+        tokenDecimalsVerified = false;
+        configurationError = "Could not verify mUSDC decimals; mUSDC use is disabled. ETH escrow remains available.";
+      }
+    }
     render();
   } catch (error) {
-    localRpcChain = null;
+    configuredRpcChain = null;
     contractCodeAvailable = false;
     tokenCodeAvailable = false;
-    configurationError = `Could not verify the local deployment via ${rpcUrl}: ${error instanceof Error ? error.message : String(error)}`;
+    tokenDecimalsVerified = false;
+    configurationError = "Could not verify the Sepolia deployment using the configured RPC. Check its availability and the configured contract/token addresses.";
     render();
   }
 }
@@ -913,7 +977,7 @@ function readDeadline(value: FormDataEntryValue | null): bigint | undefined {
 }
 
 function connectListeners(): void {
-  void checkLocalDeployment();
+  void checkSepoliaDeployment();
   if (!window.ethereum) {
     render();
     return;
@@ -1031,7 +1095,7 @@ document.addEventListener("click", (event) => {
     noticeKind = "info";
     render();
     void connectWallet().then(() => {
-      notice = connectedChain === chainId ? "Wallet connected to the local chain." : "Wallet connected on a different network. Switch to chain 31337.";
+      notice = connectedChain === chainId ? "Wallet connected to Sepolia." : "Wallet connected on a different network. Choose Switch to Sepolia when ready.";
       noticeKind = connectedChain === chainId ? "success" : "error";
       busy = false;
       render();
@@ -1039,8 +1103,8 @@ document.addEventListener("click", (event) => {
   } else if (action === "switch-network") {
     busy = true;
     render();
-    void switchToLocalNetwork().then(() => {
-      notice = connectedChain === chainId ? "Connected to Hardhat Local." : "The wallet did not switch to chain 31337.";
+    void switchToSepoliaNetwork().then(() => {
+      notice = connectedChain === chainId ? "Connected to Ethereum Sepolia." : "The wallet did not switch to Sepolia (chain 11155111).";
       noticeKind = connectedChain === chainId ? "success" : "error";
       busy = false;
       render();
@@ -1078,10 +1142,10 @@ document.addEventListener("submit", (event) => {
     try {
       if (formType === "lookup") {
         if (!contractAddress || !isAddress(contractAddress)) {
-          throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS from deployments/local.json and restart Vite.");
+          throw new Error("Set VITE_ESCROW_CONTRACT_ADDRESS to the deployed Sepolia escrow address and restart Vite.");
         }
-        if (localRpcChain !== chainId || contractCodeAvailable !== true) {
-          throw new Error(configurationError || "The configured contract is not verified on local chain 31337.");
+        if (configuredRpcChain !== chainId || contractCodeAvailable !== true) {
+          throw new Error(configurationError || "The configured contract is not verified on Sepolia.");
         }
         const id = String(data.get("escrowId") ?? "").trim();
         currentDetails = null;
@@ -1091,6 +1155,10 @@ document.addEventListener("submit", (event) => {
         noticeKind = "success";
       } else if (formType === "create-freelance") {
         const sdk = getWriteSdk();
+        const selectedToken = String(data.get("token") ?? "ETH");
+        if (selectedToken === "mUSDC" && (tokenCodeAvailable !== true || !tokenDecimalsVerified)) {
+          throw new Error("The configured mUSDC mock token must have contract code and verified 6 decimals before use.");
+        }
         const seller = String(data.get("seller") ?? "").trim();
         if (!isAddress(seller)) throw new Error("Enter a valid freelancer EVM address.");
         if (account?.toLowerCase() === seller.toLowerCase()) throw new Error("The connected client cannot be their own freelancer.");
@@ -1103,7 +1171,7 @@ document.addEventListener("submit", (event) => {
         const deadline = readDeadline(data.get("deadline"));
         const created = await sdk.createMilestoneEscrow({
           seller,
-          token: String(data.get("token") ?? "ETH"),
+          token: selectedToken,
           deadline: deadline ?? 0n,
           milestoneAmounts: amounts,
         });
@@ -1121,6 +1189,10 @@ document.addEventListener("submit", (event) => {
         noticeKind = "success";
       } else if (formType === "create-p2p") {
         const sdk = getWriteSdk();
+        const selectedToken = String(data.get("token") ?? "ETH");
+        if (selectedToken === "mUSDC" && (tokenCodeAvailable !== true || !tokenDecimalsVerified)) {
+          throw new Error("The configured mUSDC mock token must have contract code and verified 6 decimals before use.");
+        }
         const seller = String(data.get("seller") ?? "").trim();
         const amount = String(data.get("amount") ?? "").trim();
         if (!isAddress(seller)) throw new Error("Enter a valid seller EVM address.");
@@ -1131,7 +1203,7 @@ document.addEventListener("submit", (event) => {
         const created = await sdk.createEscrow({
           seller,
           amount,
-          token: String(data.get("token") ?? "ETH"),
+          token: selectedToken,
           deadline,
         });
         const id = created.id.toString();

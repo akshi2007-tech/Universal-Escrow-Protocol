@@ -66,10 +66,12 @@ dispute permissions, and duplicate/replay attempts. See
 
 ## Limitations and residual risks
 
-- Only local Hardhat chain ID `31337` and its mock ERC-20 integration have been
-  verified here. Sepolia configuration is a template. Base and other public
-  chain deployments and token addresses are not verified. `mUSDC` is a test
-  token, not USDC.
+- The browser reference targets Ethereum Sepolia chain ID `11155111` and the
+  escrow and token addresses supplied for this project. This workspace has
+  not independently verified those deployments on-chain; runtime bytecode and
+  decimals checks are configuration checks, not source verification or an
+  audit. Hardhat Local chain ID `31337` remains the test environment. `mUSDC`
+  is a six-decimal mock token, not USDC.
 - No NFT, rebase-token, fee-on-transfer, or arbitrary digital-asset support is
   claimed. Exact-delta checks reject fee-on-transfer behavior but cannot make
   a malicious token trustworthy.
