@@ -32,17 +32,20 @@ flowchart LR
 - **Reference integrations:** `apps/freelance/demo.ts` and
   `apps/p2p/demo.ts` are executable CLI examples using the SDK against
   ephemeral local Hardhat deployments. `web/` provides two separate browser
-  reference experiences backed by the same SDK. They require an injected
-  wallet connected to the configured local deployment; project/deal notes and
+  reference experiences backed by the same SDK. Read-only contract access
+  uses the configured local RPC and does not require a connected wallet.
+  Write transactions require a connected injected wallet on the configured
+  local chain and explicit wallet signing; project/deal notes and
   browser-observed activity are local UI metadata, not contract state.
 - **Deployment script:** deploys Escrow and MockERC20 to a running local node,
   allowlists that mock token, and records actual deployment addresses and ABI
   in ignored `deployments/local.json`.
 
-  The browser app uses `BrowserProvider` and the connected wallet's signer. Its
-  configured Vite contract and token addresses are public metadata sourced from
-  `deployments/local.json`; never put a private key in a `VITE_` variable. Reads
-  and writes are performed through the SDK, which checks the chain and deployed
+  The browser app uses `BrowserProvider` and the connected wallet's signer for
+  writes. Its configured Vite contract and token addresses are public metadata
+  sourced from `deployments/local.json`; never put a private key in a `VITE_`
+  variable. Reads use the configured JSON-RPC provider, while writes are
+  signed by the user's connected wallet. The SDK checks the chain and deployed
   contract before operations and waits for successful receipts.
 
 ## Lifecycle and supported assets

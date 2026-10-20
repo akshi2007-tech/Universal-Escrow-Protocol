@@ -92,9 +92,11 @@ dispute permissions, and duplicate/replay attempts. See
 ERC-20 escrow; two-party and explicit-threshold multi-party approval;
 pre-funding cancellation; undelivered-expiry refund; sequential milestones;
 party disputes and arbitrator settlement; EIP-712 signed agreement creation;
-SDK and MCP access; CLI reference flows.
+SDK and MCP access; CLI reference flows; a documentation website with
+Freelance Escrow and P2P Escrow browser reference integrations. Browser-wallet
+transaction flows are not verified here.
 
 **Not implemented or not verified:** NFT/digital assets; verified Base or
 other public-chain deployments; real USDC configuration; public-chain
-finality policy; professional security audit; documentation website or
-graphical marketplace UI.
+finality policy; professional security audit; end-to-end browser transactions
+using an injected wallet.
