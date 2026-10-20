@@ -1,0 +1,63 @@
+# Architecture
+
+Universal Escrow Protocol is a local-first EVM escrow contract with a reusable
+ethers v6 SDK. The CLI and browser reference integrations and the MCP server
+call the same SDK; they do not implement separate escrow accounting or
+simulate chain state.
+
+```mermaid
+flowchart LR
+  App["Marketplace application / CLI / browser docs"] --> SDK["TypeScript SDK (ethers v6)"]
+  MCPClient["MCP-compatible client"] --> MCP["MCP stdio server"]
+  MCP --> SDK
+  SDK --> Provider["JSON-RPC provider"]
+  SDK --> Signer["Transaction signer (writes only)"]
+  Provider --> Chain["EVM chain"]
+  Signer --> Chain
+  Chain --> Escrow["Escrow contract"]
+  Escrow --> Token["Allowlisted ERC-20 (optional)"]
+```
+
+## Components and request flow
+
+- **Escrow contract:** stores deal terms and lifecycle state, enforces buyer,
+  seller, approver, and arbitrator permissions, and holds ETH or supported
+  ERC-20 funds until settlement.
+- **SDK:** validates chain/address/token configuration, converts human-readable
+  amounts, performs ERC-20 allowance setup, sends contract transactions,
+  confirms receipts, decodes escrow events, and exposes typed state/errors.
+- **MCP server:** publishes eight validated tools and delegates protocol work
+  to the SDK. Read tools use a provider; write tools require explicit server
+  enablement and a signer.
+- **Reference integrations:** `apps/freelance/demo.ts` and
+  `apps/p2p/demo.ts` are executable CLI examples using the SDK against
+  ephemeral local Hardhat deployments. `web/` provides two separate browser
+  reference experiences backed by the same SDK. They require an injected
+  wallet connected to the configured local deployment; project/deal notes and
+  browser-observed activity are local UI metadata, not contract state.
+- **Deployment script:** deploys Escrow and MockERC20 to a running local node,
+  allowlists that mock token, and records actual deployment addresses and ABI
+  in ignored `deployments/local.json`.
+
+  The browser app uses `BrowserProvider` and the connected wallet's signer. Its
+  configured Vite contract and token addresses are public metadata sourced from
+  `deployments/local.json`; never put a private key in a `VITE_` variable. Reads
+  and writes are performed through the SDK, which checks the chain and deployed
+  contract before operations and waits for successful receipts.
+
+## Lifecycle and supported assets
+
+The buyer creates and funds; the seller submits delivery or the next milestone.
+An agreement deadline, when nonzero, is the last permitted funding time and
+enables an expiry refund if delivery has not been submitted; zero means no
+deadline-based expiry refund.
+For a standard two-party escrow, buyer and seller approvals release funds.
+Multi-party escrows include the buyer and seller in a unique approver set and
+use an explicit threshold; their timeout release is disabled. The immutable
+deployer arbitrator can allowlist ERC-20 contracts and settle disputes.
+
+ETH and allowlisted ERC-20 tokens are supported. Fee-on-transfer tokens are
+rejected by exact balance-delta checks. NFT and other non-fungible/digital
+assets are not implemented. Hardhat chain ID `31337` is the only verified
+deployment in this workspace; Sepolia is a deployment template, not a
+verified supported deployment.
